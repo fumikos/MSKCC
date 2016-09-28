@@ -54,13 +54,15 @@ idx = match(HSP90$CCLE.Cell.Line.Name,colnames(CCLE_Exp_minus1))
 length(which(is.na(idx)))#of the 503 cells 13 do not have microarray data
 idx <- idx[!is.na(idx)]
 length(idx)#of the 503, 490 have microarray data
-rearranged = CCLE_Exp_minus1[,idx]
+rearranged = CCLE_Exp_minus1[,idx]# reorder the exp data to match HSP90
+dim(rearranged)
 rearranged[1:5,1:5]
 HSP90[1:5,]
 
- idx2 = match(colnames(rearranged), HSP90$CCLE.Cell.Line.Name)
+idx2 = match(colnames(rearranged), HSP90$CCLE.Cell.Line.Name)
 length(which(is.na(idx2)))
 HSP90<-HSP90[idx2,]
+dim(HSP90)
 
 summary(HSP90)
 res<-HSP90[order(HSP90[,2])[1:50],]
@@ -98,68 +100,81 @@ length(which(fdrs<0.05))
 X<-cbind(res_exp,sen_exp)
 dim(X)
 Y<-as.factor(c(rep(1, 50),rep(2, 50)))#1:res, 2:sen
-X<-X[which(fdrs<0.05),]
-row.names(X) <- str_replace_all(row.names(X),"_at","")
-k<-as.character(row.names(X))
+X1<-X[which(fdrs<0.05),]
+dim(X1)
+row.names(X1) <- str_replace_all(row.names(X1),"_at","")
+k<-as.character(row.names(X1))
 gene_name <- select(hgu133plus2.db, keys=k, columns=c("SYMBOL"), keytype="ENTREZID")
 gene_table <- select(hgu133plus2.db, keys=k, columns=c("SYMBOL","GENENAME"), keytype="ENTREZID")
 which(is.na(gene_name$SYMBOL))
-row.names(X)<-gene_name[,2]
-X<-X[-which(is.na(gene_name$SYMBOL)),] #remove genes without SYMBOL
-head(X)
-X<-t(X)
+row.names(X1)<-gene_name[,2]
+X1<-X1[-which(is.na(gene_name$SYMBOL)),] #remove genes without SYMBOL
+head(X1)
+X1<-t(X1)
 
 ?naiveBayes
-dim(X)
+dim(X1)
 length(Y)
-CV <- matrix(data=NA, nrow=length(Y), ncol=5)
+CV1 <- matrix(data=NA, nrow=length(Y), ncol=5)
 for(j in 1:5){
   idx <- createFolds(Y, k=10)
   for(i in 1:10){
-    model <- naiveBayes(X[-idx[[i]],], Y[-idx[[i]]])
-    pred <- predict(model, X[idx[[i]],])
-    CV[idx[[i]],j]<-pred
+    model <- naiveBayes(X1[-idx[[i]],], Y[-idx[[i]]])
+    pred <- predict(model, X1[idx[[i]],], type = "raw")
+    CV1[idx[[i]],j]<-pred[,2]
   }}
-
-cor=numeric(5)
-for (i in 1:5) {cor[i]<-mean(CV[,i]==Y)}
-mean(cor)
 
 # ROC analysis
+?pROC
+Y_pred<-rowMeans(CV1)
+roc1<-roc(Y, Y_pred, plot=TRUE, ci=TRUE)
+?coords
+coords(roc1,"l", ret=c("threshold", "specificity", "sensitivity", "ppv", "npv"))
+coords(roc1,"b", ret=c("threshold", "specificity", "sensitivity", "ppv", "npv"))
+
+# Predict all cell lines (including sen and res)
 X2 <- rearranged[which(fdrs<0.05),]
 X2[1:5,1:5]
+dim(X2)
+X2<-X2[-which(is.na(gene_name$SYMBOL)),] #remove genes without SYMBOL
+X2<-t(X2)
+dim(X2)
+colnames(X2)<-colnames(X1)
+model2 <- naiveBayes(X1, Y)
+pred2 <- predict(model2, X2, type = "raw")
+sen_pred<-pred2[,2]
+summary(sen_pred)
+plot(sen_pred)
+plot(HSP90[,2], col=(as.numeric(sen_pred==1)+1))
+plot(HSP90[,2], col=(as.numeric(sen_pred<0.00001)+1))
+plot(HSP90[,2], col=(as.numeric(sen_pred>0.00001&sen_pred<1)+1))
+plot(density(HSP90[,2]))
+lines(density(HSP90[sen_pred==1,2]), col=2)
+lines(density(HSP90[sen_pred<0.00001,2]), col=3)
+lines(density(HSP90[sen_pred>0.00001&sen_pred<1,2]), col=4)
+t.test(HSP90[sen_pred==1,2],HSP90[sen_pred<0.00001,2])$p.value
 
- <- matrix(data=NA, nrow=length(Y), ncol=5)
-for(j in 1:5){
-  idx <- createFolds(Y, k=10)
-  for(i in 1:10){
-    model <- naiveBayes(X[-idx[[i]],], Y[-idx[[i]]])
-    pred <- predict(model, X[idx[[i]],])
-    CV[idx[[i]],j]<-pred
-  }}
-
-
-?pROC
-Y_pred<-round(rowMeans(CV))
-roc<-roc(Y, Y_pred, plot=TRUE, ci=TRUE)
-?coords
-coords(roc,"l", ret=c("threshold", "specificity", "sensitivity", "ppv", "npv"))
-coords(roc,"b", ret=c("threshold", "specificity", "sensitivity", "ppv", "npv"))
-
-# GSEA
-library(GSEABase)
-library(GSE5859Subset)
-data(GSE5859Subset)
-library(sva)
-library(limma)
-X = sampleInfo$group
-mod<-model.matrix(~X)
-svafit <- sva(geneExpression,mod)
-
-?limma
-library(GEOquery)
-g <- getGEO("GSE34313")
-e <- g[[1]]
-
-
-
+# Predict all cell lines (excluding sen and res)
+res_idx2<-match(res$CCLE.Cell.Line.Name,colnames(rearranged))
+sen_idx2<-match(sen$CCLE.Cell.Line.Name,colnames(rearranged))
+X3 <- rearranged[which(fdrs<0.05),-c(sen_idx2,res_idx2)]
+HSP90_2<-HSP90[-c(sen_idx2,res_idx2),]
+X3[1:5,1:5]
+dim(X3)
+X3<-X3[-which(is.na(gene_name$SYMBOL)),] #remove genes without SYMBOL
+X3<-t(X3)
+dim(X3)
+colnames(X3)<-colnames(X1)
+X3[1:5,1:5]
+pred3 <- predict(model2, X3, type = "raw")
+sen_pred2<-pred3[,2]
+summary(sen_pred2)
+plot(sen_pred2)
+plot(HSP90_2[,2], col=(as.numeric(sen_pred==1)+1))
+plot(HSP90_2[,2], col=(as.numeric(sen_pred<0.00001)+1))
+plot(HSP90_2[,2], col=(as.numeric(sen_pred>0.00001&sen_pred<1)+1))
+plot(density(HSP90_2[,2]))
+lines(density(HSP90_2[sen_pred2==1,2]), col=2)
+lines(density(HSP90_2[sen_pred2<0.00001,2]), col=3)
+lines(density(HSP90_2[sen_pred2>0.00001&sen_pred2<1,2]), col=4)
+t.test(HSP90[sen_pred2==1,2],HSP90[sen_pred2<0.00001,2])$p.value
