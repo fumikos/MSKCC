@@ -1,24 +1,18 @@
 ### Network-based inference of protein activity using ARACNE-AP/VIPER algorithm
+### Method is based on VIPER's vignette
+### https://www.bioconductor.org/packages/devel/bioc/vignettes/viper/inst/doc/viper.pdf
+### Data downloaded from CCLE website (https://portals.broadinstitute.org/ccle/home)
 
-## Load gene expression and drug response data from CCLE data
-library(CePa)
-CCLE_Drug_all <- read.csv("G:/My Documents/CCLE/CCLE_data/CCLE_NP24.2009_Drug_data_2015.02.24.csv")
-CCLE_Exp_all <- read.gct("G:/My Documents/CCLE/CCLE_data/CCLE_Expression_Entrez_2012-09-29.gct")
-CCLE_CELL_all <- read.csv("G:/My Documents/CCLE/CCLE_data/Cell_tissue.csv")
-head(CCLE_Drug_all)
-CCLE_Exp_all[1:5,1:5]
-head(CCLE_CELL_all)
+## Run code in "CCLE_drug_sensitivity_prediction\CCLE_data.R" to load and preprocess the data
+dim(rearranged)# expression data for the drug of interest
+rearranged[1:5,1:5]
+dim(drug_data)# drug response data (activity area)
+head(drug_data)
+sort(table(CCLE_CELL_all$Site.Primary), decreasing = T)[1]# Tissue with largest number of data
+# lung 
+# 186
 
-## Run code in "CCLE_17AAG_data.R"
-dim(CCLE_Exp_minus1)# 18988  1036
-CCLE_Exp_minus1[1:5,1:5]# expression data for all cells
-dim(rearranged)# 18988   492
-rearranged[1:5,1:5]# expression data for 17AAG study
-dim(HSP90)# 492   2
-head(HSP90)# 17AAG response data (activity area)
-
-## ARACNE-AP
-## Expression profile for lung cancer cells
+## Extract expression data for lung cancer cells to build an context-specific interactome
 X <- CCLE_Exp_minus1[,which(CCLE_CELL_all$Site.Primary=="lung")]
 dim(X)
 X <- data.frame(X)
@@ -27,49 +21,50 @@ gene <- rownames(X)
 X <- cbind(gene, X)
 X[1:5,1:5]
 library(data.table)
-# fwrite(X, "expression_lung.txt", quote = FALSE, sep = "\t", row.names = FALSE)
+fwrite(X, "expression_lung.txt", quote = FALSE, sep = "\t", row.names = FALSE)
 
-## Extract gene list of regulators
+## Extract a gene list of regulators (transcription factors and signaling proteins)
+## from a pre-assembled ARACNe interactome
 library(aracne.networks)
 data(regulongbm)
-class(regulongbm)
 regulongbm# Object of class regulon with 6056 regulators, 19858 targets and 563850 interactions
 regulators <- names(regulongbm)
 length(regulators)# 6056
 head(regulators)
-# write.table(regulators,"regulators.txt", quote=F, row.names=F, col.names=F)
+write.table(regulators,"regulators.txt", quote=F, row.names=F, col.names=F)
 
-## On the command line, run "run_aracne". This generates an aracne network file ("network.txt")
-## The first line (column label) had to be removed in order for the aracne2regulon function to work
+## On the command line, run "run_aracne.sh". This generates an aracne network file ("network.txt")
+## The first line (column label) may need to be removed in order for the aracne2regulon function 
+## below to work.
 
 ## Create regulon objects
 library(viper)
-class(X)# "data.frame"
-X[1:5,1:5]
-X <- CCLE_Exp_minus1[,which(CCLE_CELL_all$Site.Primary=="lung")]
+X <- CCLE_Exp_minus1[,which(CCLE_CELL_all$Site.Primary=="lung")]# Convert X back to a matrix
 class(X)# "matrix"
-X[1:5,1:5]
 regs<- aracne2regulon("network.txt", X, format = "3col")
 regs# Object of class regulon with 5408 regulators, 18298 targets and 110112 interactions
 
 ## Assign resistant and sensitive lung cancer cells
-idx3 <- match(HSP90$Primary.Cell.Line.Name, CCLE_CELL_all$Cell.line.primary.name)
-CCLE_CELL_HSP90 <- CCLE_CELL_all[idx3,]
-head(CCLE_CELL_HSP90)
-sum(CCLE_CELL_HSP90$Site.Primary=="lung")#91 lung cells have 17-AAG data
-HSP90_lung <- HSP90[CCLE_CELL_HSP90$Site.Primary=="lung",]
-dim(HSP90_lung)
-head(HSP90_lung)
-res_lung <- HSP90_lung[order(HSP90_lung[,2])[1:15],]
-sen_lung <- HSP90_lung[order(HSP90_lung[,2])[77:91],]
-mid_lung <- HSP90_lung[sample(order(HSP90_lung[,2])[30:62],15),]
+idx3 <- match(drug_data$Primary.Cell.Line.Name, CCLE_CELL_all$Cell.line.primary.name)
+CCLE_CELL_drug_data <- CCLE_CELL_all[idx3,]
+head(CCLE_CELL_drug_data)
+sum(CCLE_CELL_drug_data$Site.Primary=="lung")
+drug_data_lung <- drug_data[CCLE_CELL_drug_data$Site.Primary=="lung",]
+dim(drug_data_lung)
+head(drug_data_lung)
+res <- 1:15
+sen <- (length(drug_data_lung$ActArea)-14):length(drug_data_lung$ActArea)
+mid <- (round(length(drug_data_lung$ActArea)/2)-15):(round(length(drug_data_lung$ActArea)/2)+15)
+res_lung <- drug_data_lung[order(drug_data_lung$ActArea)[res],]
+sen_lung <- drug_data_lung[order(drug_data_lung$ActArea)[sen],]
+mid_lung <- drug_data_lung[sample(order(drug_data_lung$ActArea)[mid],15),]
 res_lung_idx <- match(res_lung$Primary.Cell.Line.Name,colnames(X))
 sen_lung_idx <- match(sen_lung$Primary.Cell.Line.Name,colnames(X))
 mid_lung_idx <- match(mid_lung$Primary.Cell.Line.Name,colnames(X))
 library(rafalib)
 mypar(1,3)
-plot(sort(HSP90[,2]))
-plot(sort(HSP90_lung[,2]))
+plot(sort(drug_data[,2]))
+plot(sort(drug_data_lung[,2]))
 plot(sort(c(res_lung[,2],mid_lung[,2],sen_lung[,2])))
 
 ## Create an ExpressionSet object
@@ -88,7 +83,7 @@ pData(eset)$description2 <- description2
 ## Generating the gene expression signatures
 sig1 <- rowTtest(eset, "description", "sen", "res")
 mypar(1,1)
-hist(sig1$p.value)# uniform
+hist(sig1$p.value)
 sig1 <- (qnorm(sig1$p.value/2, lower.tail = FALSE)*sign(sig1$statistic))[, 1]
 hist(sig1)
 

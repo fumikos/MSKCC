@@ -1,6 +1,6 @@
 library(e1071)
 library(pROC)
-install.packages("mlbench")
+#install.packages("mlbench")
 data(HouseVotes84, package = "mlbench")
 head(HouseVotes84)
 
@@ -25,12 +25,15 @@ mean(pred==HouseVotes84$Class)
 
 ## Example of using a contingency table:
 data(Titanic)
+Titanic
+
 m <- naiveBayes(Survived ~ ., data = Titanic)
 m
 predict(m, as.data.frame(Titanic))
 
 ## Example with metric predictors:
 data(iris)
+iris
 m <- naiveBayes(Species ~ ., data = iris)
 predict(m, as.data.frame(iris))
 
